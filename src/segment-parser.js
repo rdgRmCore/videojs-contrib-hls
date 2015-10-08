@@ -4,6 +4,7 @@
     FlvTag = videojs.Hls.FlvTag,
     H264Stream = videojs.Hls.H264Stream,
     AacStream = videojs.Hls.AacStream,
+    MetadataStream = videojs.Hls.MetadataStream,
     Mp3Stream = videojs.Hls.Mp3Stream,
     MP2T_PACKET_LENGTH,
     STREAM_TYPES,
@@ -30,6 +31,9 @@
       programMapTable: {}
     };
 
+    // allow in-band metadata to be observed
+    self.metadataStream = new MetadataStream();
+
     // For information on the FLV format, see
     // http://download.macromedia.com/f4v/video_file_format_spec_v10_1.pdf.
     // Technically, this function returns the header and a metadata FLV tag
@@ -41,7 +45,8 @@
         headBytes = new Uint8Array(3 + 1 + 1 + 4),
         head = new DataView(headBytes.buffer),
         metadata,
-        result;
+        result,
+        metadataLength;
 
       // default arguments
       duration = duration || 0;
@@ -76,9 +81,10 @@
       metadata = new FlvTag(FlvTag.METADATA_TAG);
       metadata.pts = metadata.dts = 0;
       metadata.writeMetaDataDouble("duration", duration);
-      result = new Uint8Array(headBytes.byteLength + metadata.byteLength);
-      result.set(head);
-      result.set(head.bytesLength, metadata.finalize());
+      metadataLength = metadata.finalize().length;
+      result = new Uint8Array(headBytes.byteLength + metadataLength);
+      result.set(headBytes);
+      result.set(head.byteLength, metadataLength);
 
       return result;
     };
@@ -225,6 +231,9 @@
         patTableId, // :int
         patCurrentNextIndicator, // Boolean
         patSectionLength, // :uint
+        programNumber, // :uint
+        programPid, // :uint
+        patEntriesEnd, // :uint
 
         pesPacketSize, // :int,
         dataAlignmentIndicator, // :Boolean,
@@ -285,6 +294,8 @@
         if (patCurrentNextIndicator) {
           // section_length specifies the number of bytes following
           // its position to the end of this section
+          // section_length = rest of header + (n * entry length) + CRC
+          // = 5 + (n * 4) + 4
           patSectionLength =  (data[offset + 1] & 0x0F) << 8 | data[offset + 2];
           // move past the rest of the PSI header to the first program
           // map table entry
@@ -292,18 +303,26 @@
 
           // we don't handle streams with more than one program, so
           // raise an exception if we encounter one
-          // section_length = rest of header + (n * entry length) + CRC
-          // = 5 + (n * 4) + 4
-          if ((patSectionLength - 5 - 4) / 4 !== 1) {
-            throw new Error("TS has more that 1 program");
+          patEntriesEnd = offset + (patSectionLength - 5 - 4);
+          for (; offset < patEntriesEnd; offset += 4) {
+            programNumber = (data[offset] << 8 | data[offset + 1]);
+            programPid = (data[offset + 2] & 0x1F) << 8 | data[offset + 3];
+            // network PID program number equals 0
+            // this is primarily an artifact of EBU DVB and can be ignored
+            if (programNumber === 0) {
+              self.stream.networkPid = programPid;
+            } else if (self.stream.pmtPid === undefined) {
+              // the Program Map Table (PMT) associates the underlying
+              // video and audio streams with a unique PID
+              self.stream.pmtPid = programPid;
+            } else if (self.stream.pmtPid !== programPid) {
+              throw new Error("TS has more that 1 program");
+            }
           }
-
-          // the Program Map Table (PMT) associates the underlying
-          // video and audio streams with a unique PID
-          self.stream.pmtPid = (data[offset + 2] & 0x1F) << 8 | data[offset + 3];
         }
       } else if (pid === self.stream.programMapTable[STREAM_TYPES.h264] ||
                  pid === self.stream.programMapTable[STREAM_TYPES.adts] ||
+                 pid === self.stream.programMapTable[STREAM_TYPES.metadata] ||
                  pid === self.stream.programMapTable[STREAM_TYPES.mp3]) {
         if (pusi) {
           // comment out for speed
@@ -345,6 +364,7 @@
               dts /= 45;
             }
           }
+
           // Skip past "optional" portion of PTS header
           offset += pesHeaderLength;
 
@@ -369,6 +389,12 @@
           mp3Stream.writeBytes(data, offset, end - offset);
         } else if (pid === self.stream.programMapTable[STREAM_TYPES.h264]) {
           h264Stream.writeBytes(data, offset, end - offset);
+        } else if (pid === self.stream.programMapTable[STREAM_TYPES.metadata]) {
+          self.metadataStream.push({
+            pts: pts,
+            dts: dts,
+            data: data.subarray(offset)
+          });
         }
       } else if (self.stream.pmtPid === pid) {
         // similarly to the PAT, jump to the first byte of the section
@@ -395,6 +421,9 @@
           // skip CRC and PSI data we dont care about
           // rest of header + CRC = 9 + 4
           pmtSectionLength -= 13;
+
+          // capture the PID of PCR packets so we can ignore them if we see any
+          self.stream.programMapTable.pcrPid = (data[offset + 8] & 0x1f) << 8 | data[offset + 9];
 
           // align offset to the first entry in the PMT
           offset += 12 + pmtProgramDescriptorsLength;
@@ -430,16 +459,26 @@
 
             // the length of the entry descriptor
             ESInfolength = (data[offset + 3] & 0x0F) << 8 | data[offset + 4];
+            // capture the stream descriptor for metadata streams
+            if (streamType === STREAM_TYPES.metadata) {
+              self.metadataStream.descriptor = new Uint8Array(data.subarray(offset + 5, offset + 5 + ESInfolength));
+            }
             // move to the first byte after the end of this entry
             offset += 5 + ESInfolength;
             pmtSectionLength -=  5 + ESInfolength;
           }
         }
         // We could test the CRC here to detect corruption with extra CPU cost
+      } else if (self.stream.networkPid === pid) {
+        // network information specific data (NIT) packet
       } else if (0x0011 === pid) {
         // Service Description Table
       } else if (0x1FFF === pid) {
         // NULL packet
+      } else if (self.stream.programMapTable.pcrPid) {
+        // program clock reference (PCR) PID for the primary program
+        // PTS values are sufficient to synchronize playback for us so
+        // we can safely ignore these
       } else {
         videojs.log("Unknown PID parsing TS packet: " + pid);
       }
@@ -455,8 +494,20 @@
       h264Tags: function() {
         return h264Stream.tags.length;
       },
+      minVideoPts: function() {
+        return h264Stream.tags[0].pts;
+      },
+      maxVideoPts: function() {
+        return h264Stream.tags[h264Stream.tags.length - 1].pts;
+      },
       aacTags: function() {
         return self.getAudioStream().tags.length;
+      },
+      minAudioPts: function() {
+        return self.getAudioStream().tags[0].pts;
+      },
+      maxAudioPts: function() {
+        return self.getAudioStream().tags[aacStream.tags.length - 1].pts;
       }
     };
   };
@@ -466,7 +517,8 @@
   videojs.Hls.SegmentParser.STREAM_TYPES = STREAM_TYPES = {
     h264: 0x1b,
     adts: 0x0f,
-    mp3:  0x03
+    metadata: 0x15,
+    mp3: 0x03
   };
 
 })(window);

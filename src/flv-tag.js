@@ -1,3 +1,8 @@
+/**
+ * An object that stores the bytes of an FLV tag and methods for
+ * querying and manipulating that data.
+ * @see http://download.macromedia.com/f4v/video_file_format_spec_v10_1.pdf
+ */
 (function(window) {
 
 window.videojs = window.videojs || {};

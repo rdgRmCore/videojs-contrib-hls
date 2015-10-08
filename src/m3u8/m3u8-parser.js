@@ -108,6 +108,9 @@
    */
   ParseStream.prototype.push = function(line) {
     var match, event;
+
+    //strip whitespace
+    line = line.replace(/^\s+|\s+$/g, '');
     if (line.length === 0) {
       // ignore empty lines
       return;
@@ -200,6 +203,18 @@
       event = {
         type: 'tag',
         tagType: 'media-sequence'
+      };
+      if (match[1]) {
+        event.number = parseInt(match[1], 10);
+      }
+      this.trigger('data', event);
+      return;
+    }
+    match = (/^#EXT-X-DISCONTINUITY-SEQUENCE:?(\-?[0-9.]*)?/).exec(line);
+    if (match) {
+      event = {
+        type: 'tag',
+        tagType: 'discontinuity-sequence'
       };
       if (match[1]) {
         event.number = parseInt(match[1], 10);
@@ -305,6 +320,10 @@
         event.attributes = parseAttributes(match[1]);
         // parse the IV string into a Uint32Array
         if (event.attributes.IV) {
+          if (event.attributes.IV.substring(0,2) === '0x') {
+            event.attributes.IV = event.attributes.IV.substring(2);
+          }
+
           event.attributes.IV = event.attributes.IV.match(/.{8}/g);
           event.attributes.IV[0] = parseInt(event.attributes.IV[0], 16);
           event.attributes.IV[1] = parseInt(event.attributes.IV[1], 16);
@@ -356,7 +375,8 @@
 
     // the manifest is empty until the parse stream begins delivering data
     this.manifest = {
-      allowCache: true
+      allowCache: true,
+      discontinuityStarts: []
     };
 
     // update the manifest with the m3u8 entry from the parse stream
@@ -402,6 +422,12 @@
                   message: 'defaulting media sequence to zero'
                 });
               }
+              if (!('discontinuitySequence' in this.manifest)) {
+                this.manifest.discontinuitySequence = 0;
+                this.trigger('info', {
+                  message: 'defaulting discontinuity sequence to zero'
+                });
+              }
               if (entry.duration >= 0) {
                 currentUri.duration = entry.duration;
               }
@@ -438,6 +464,10 @@
                 method: entry.attributes.METHOD || 'AES-128',
                 uri: entry.attributes.URI
               };
+
+              if (entry.attributes.IV !== undefined) {
+                key.iv = entry.attributes.IV;
+              }
             },
             'media-sequence': function() {
               if (!isFinite(entry.number)) {
@@ -447,6 +477,15 @@
                 return;
               }
               this.manifest.mediaSequence = entry.number;
+            },
+            'discontinuity-sequence': function() {
+              if (!isFinite(entry.number)) {
+                this.trigger('warn', {
+                  message: 'ignoring invalid discontinuity sequence: ' + entry.number
+                });
+                return;
+              }
+              this.manifest.discontinuitySequence = entry.number;
             },
             'playlist-type': function() {
               if (!(/VOD|EVENT/).test(entry.playlistType)) {
@@ -475,6 +514,7 @@
             },
             'discontinuity': function() {
               currentUri.discontinuity = true;
+              this.manifest.discontinuityStarts.push(uris.length);
             },
             'targetduration': function() {
               if (!isFinite(entry.duration) || entry.duration < 0) {

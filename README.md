@@ -5,17 +5,24 @@ A video.js tech that plays HLS video on platforms that don't support it but have
 [![Build Status](https://travis-ci.org/videojs/videojs-contrib-hls.svg?branch=master)](https://travis-ci.org/videojs/videojs-contrib-hls)
 
 ## Getting Started
-Download the [Media Source plugin](https://github.com/videojs/videojs-contrib-media-sources/releases) as well as the [HLS tech](https://github.com/videojs/videojs-contrib-hls/releases). On your web page:
+Download [videojs-contrib-media-sources](https://github.com/videojs/videojs-contrib-media-sources/releases) and [videojs-contrib-hls](https://github.com/videojs/videojs-contrib-hls/releases). Include them both in your web page along with video.js:
 
 ```html
+<video id=example-video width=600 height=300 class="video-js vjs-default-skin" controls>
+  <source
+     src="https://example.com/index.m3u8"
+     type="application/x-mpegURL">
+</video>
 <script src="video.js"></script>
 <script src="videojs-media-sources.js"></script>
 <script src="videojs-hls.min.js"></script>
 <script>
-  var player = videojs('test-vid');
-  player.play();
+var player = videojs('example-video');
+player.play();
 </script>
 ```
+
+Check out our [live example](http://videojs.github.io/videojs-contrib-hls/) if you're having trouble.
 
 ## Documentation
 [HTTP Live Streaming](https://developer.apple.com/streaming/) (HLS) has
@@ -39,6 +46,10 @@ for HLS on browsers that have Flash support. You can deploy a single
 HLS stream, code against the regular HTML5 video APIs, and create a
 fast, high-quality video experience across all the big web device
 categories.
+
+Check out the [full documentation](docs/) for details on how HLS works
+and advanced configuration. A description of the [adaptive switching
+behavior](docs/bitrate-switching.md) is available, too.
 
 The videojs-hls tech is still working towards a 1.0 release so it
 may not fit your requirements today. Specifically, there is _no_
@@ -155,10 +166,31 @@ the actual rendering quality change does not occur simultaneously with
 this event; a new segment must be requested and the existing buffer
 depleted first.
 
+### In-Band Metadata
+The HLS tech supports [timed
+metadata](https://developer.apple.com/library/ios/#documentation/AudioVideo/Conceptual/HTTP_Live_Streaming_Metadata_Spec/Introduction/Introduction.html)
+embedded as [ID3 tags](http://id3.org/id3v2.3.0). When a stream is
+encountered with embedded metadata, an [in-band metadata text
+track](https://html.spec.whatwg.org/multipage/embedded-content.html#text-track-in-band-metadata-track-dispatch-type)
+will automatically be created and populated with cues as they are
+encountered in the stream. UTF-8 encoded
+[TXXX](http://id3.org/id3v2.3.0#User_defined_text_information_frame)
+and [WXXX](http://id3.org/id3v2.3.0#User_defined_URL_link_frame) ID3
+frames are mapped to cue points and their values set as the cue
+text. Cues are created for all other frame types and the data is
+attached to the generated cue:
+
+```js
+cue.frame.data
+```
+
+There are lots of guides and references to using text tracks [around
+the web](http://www.html5rocks.com/en/tutorials/track/basics/).
+
 ### Testing
 
 For testing, you can either run `npm test` or use `grunt` directly.
-If you use `npm test`, it will only run the karma tests using chrome.
+If you use `npm test`, it will only run the karma and end-to-end tests using chrome.
 You can specify which browsers you want the tests to run via grunt's `test` task.
 You can use either grunt-style arguments or comma separated arguments:
 ```
@@ -169,10 +201,14 @@ Possible options are:
 * `chromecanary`
 * `phantomjs`
 * `opera`
-* `chrome`
-* `safari`
-* `firefox`
-* `ie`
+* `chrome`<sup>1</sup>
+* `safari`<sup>1, 2</sup>
+* `firefox`<sup>1</sup>
+* `ie`<sup>1</sup>
+
+
+_<sup>1</sup>supported end-to-end browsers_<br />
+_<sup>2</sup>requires the [SafariDriver extension]( https://code.google.com/p/selenium/wiki/SafariDriver) to be installed_
 
 ## Hosting Considerations
 Unlike a native HLS implementation, the HLS tech has to comply with
@@ -184,33 +220,5 @@ configured. Easy [instructions are
 available](http://enable-cors.org/server.html) for popular webservers
 and most CDNs should have no trouble turning CORS on for your account.
 
-## Adaptive Switching Behavior
-The HLS tech tries to ensure the highest-quality viewing experience 
-possible, given the available bandwidth and encodings. This doesn't
-always mean using the highest-bitrate rendition available-- if the player
-is 300px by 150px, it would be a big waste of bandwidth to download a 4k
-stream. By default, the player attempts to load the highest-bitrate 
-variant that is less than the most recently detected segment bandwidth,
-with one condition: if there are multiple variants with dimensions greater
-than the current player size, it will only switch up one size greater 
-than the current player size.
-
-If you'd like your player to use a different set of priorities, it's 
-possible to completely replace the rendition selection logic. For 
-instance, you could always choose the most appropriate rendition by 
-resolution, even though this might mean more stalls during playback.
-See the documentation on `player.hls.selectPlaylist` for more details.
-
 ## Release History
-- 0.10.0: optimistic initial bitrate selection
-- 0.9.0: support segment level AES-128 encryption
-- 0.8.0: support for EXT-X-DISCONTINUITY
-- 0.7.0: convert the HLS plugin to a tech
-- 0.6.0:
-  - Refactor playlist loading
-  - Add testing via karma
-- 0.5.0: cookie-based content protection support (see `withCredentials`)
-- 0.4.0: Live stream support
-- 0.3.0: Performance fixes for high-bitrate streams
-- 0.2.0: Basic playback and adaptive bitrate selection
-- 0.1.0: Initial release
+Check out the [changelog](CHANGELOG.md) for a summary of each release.

@@ -10,8 +10,7 @@ module.exports = function(config) {
       singleRun: true,
       base: 'SauceLabs',
       browserName: 'chrome',
-      platform: 'Windows 7',
-      version: '34'
+      platform: 'Windows 7'
     },
 
     firefox_sl: {
@@ -61,7 +60,7 @@ module.exports = function(config) {
     customLaunchers: customLaunchers,
 
     // Start these browsers
-    browsers: ['chrome_sl', 'ipad_sl'], //Object.keys(customLaunchers),
+    browsers: ['chrome_sl', 'firefox_sl'], //Object.keys(customLaunchers),
 
     // List of files / patterns to load in the browser
     // Add any new src files to this list.
@@ -75,20 +74,23 @@ module.exports = function(config) {
       '../node_modules/sinon/lib/sinon/util/fake_xml_http_request.js',
       '../node_modules/sinon/lib/sinon/util/xhr_ie.js',
       '../node_modules/sinon/lib/sinon/util/fake_timers.js',
-      '../node_modules/video.js/dist/video-js/video.js',
+      '../node_modules/video.js/dist/video-js/video.dev.js',
       '../node_modules/videojs-contrib-media-sources/src/videojs-media-sources.js',
       '../node_modules/pkcs7/dist/pkcs7.unpad.js',
       '../test/karma-qunit-shim.js',
       '../src/videojs-hls.js',
-      '../src/xhr.js',
+      '../src/stream.js',
       '../src/flv-tag.js',
       '../src/exp-golomb.js',
+      '../src/h264-extradata.js',
       '../src/h264-stream.js',
       '../src/aac-stream.js',
+      '../src/metadata-stream.js',
       '../src/mp3-stream.js',
       '../src/segment-parser.js',
-      '../src/stream.js',
       '../src/m3u8/m3u8-parser.js',
+      '../src/xhr.js',
+      '../src/playlist.js',
       '../src/playlist-loader.js',
       '../src/decrypter.js',
       '../tmp/manifests.js',
@@ -131,7 +133,7 @@ module.exports = function(config) {
 
     // global config for SauceLabs
     sauceLabs: {
-      startConnect: true,
+      startConnect: false,
       tunnelIdentifier: process.env.TRAVIS_JOB_NUMBER,
       build: process.env.TRAVIS_BUILD_NUMBER,
       testName: process.env.TRAVIS_BUILD_NUMBER + process.env.TRAVIS_BRANCH,
